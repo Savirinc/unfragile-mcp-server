@@ -1,5 +1,9 @@
 # @unfragile/mcp-server
 
+[![Glama MCP score](https://glama.ai/mcp/servers/Savirinc/unfragile-mcp-server/badges/score.svg)](https://glama.ai/mcp/servers/Savirinc/unfragile-mcp-server)
+[![npm](https://img.shields.io/npm/v/@unfragile/mcp-server.svg)](https://www.npmjs.com/package/@unfragile/mcp-server)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Savirinc/unfragile-mcp-server/blob/main/LICENSE)
+
 Query the [Unfragile match graph](https://unfragile.ai) from any AI agent. Find AI artifacts, discover MCP servers, assemble stacks, compare alternatives, and fetch trust passports. Every query feeds the graph.
 
 Unfragile is built for the agent era: humans click links, agents call capabilities. This server gives Claude Code, Cursor, Windsurf, Claude Desktop, and custom MCP clients a runtime discovery and trust layer for AI artifacts.
