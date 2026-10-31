@@ -25,6 +25,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const API_BASE = process.env.UNFRAGILE_API_URL || "https://unfragile.ai";
+// Monitoring and test traffic (UNFRAGILE_MONITOR=<your monitor's name>) is measured by Unfragile but never learned
+// from: it is left out of the search log the ranking is trained on. UNFRAGILE_HEADERS adds any headers as JSON.
+const EXTRA: Record<string, string> = {
+  ...(() => { try { return JSON.parse(process.env.UNFRAGILE_HEADERS || "{}"); } catch { return {}; } })(),
+  ...(process.env.UNFRAGILE_MONITOR ? { "x-unfragile-monitor": process.env.UNFRAGILE_MONITOR } : {}),
+};
 
 function log(tool: string, query: string) {
   console.error(`[unfragile] ${tool}: ${query}`);
@@ -32,7 +38,7 @@ function log(tool: string, query: string) {
 
 async function get(path: string): Promise<any> {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "User-Agent": "@unfragile/mcp-server" },
+    headers: { "User-Agent": "@unfragile/mcp-server", ...EXTRA },
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`);
@@ -42,7 +48,7 @@ async function get(path: string): Promise<any> {
 async function post(path: string, payload: unknown): Promise<any> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "@unfragile/mcp-server" },
+    headers: { "Content-Type": "application/json", "User-Agent": "@unfragile/mcp-server", ...EXTRA },
     body: JSON.stringify(payload),
   });
   const body = await res.json().catch(() => null);
@@ -71,7 +77,7 @@ function fmtRecord(r: any): string {
 
 const server = new McpServer({
   name: "unfragile",
-  version: "0.10.1",
+  version: "0.10.2",
 });
 
 server.tool(
@@ -132,7 +138,7 @@ server.tool(
 
 server.tool(
   "unfragile_find",
-  "Find the tool ACTION that does what you need, across 2.2 million actions read from MCP servers, APIs, CLIs, SDKs, models, robots and devices. Say the task in plain words ('refund a payment', 'move the robot arm home', 'what's on my calendar tomorrow'); meaning search + word search, fused and ranked by measured trust. Every result carries its label: verified and signed · official · found in code, not yet checked · demo or tutorial · failed its last check. Never invoke a 'failed' result; treat 'found in code' as unchecked.",
+  "Find the tool ACTION that does what you need, across 2.2 million actions read from MCP servers, APIs, CLIs, SDKs, models, robots and devices. Say the task in plain words ('refund a payment', 'move the robot arm home', 'what's on my calendar tomorrow'); meaning search + word search, fused and ranked by measured trust. Every result carries its label: verified and signed · official · checked: not enough evidence yet · found in code, not yet checked · demo or tutorial · failed its last check. Never invoke a 'failed' result; treat 'checked' and 'found in code' as review-first.",
   {
     task: z.string().describe("What you need done, in plain words"),
     limit: z.number().min(1).max(20).optional().describe("Max results (default 5)"),
