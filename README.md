@@ -1,14 +1,23 @@
 # @unfragile/mcp-server
 
-[![Glama MCP score](https://glama.ai/mcp/servers/Savirinc/unfragile-mcp-server/badges/score.svg)](https://glama.ai/mcp/servers/Savirinc/unfragile-mcp-server)
-[![npm](https://img.shields.io/npm/v/@unfragile/mcp-server.svg)](https://www.npmjs.com/package/@unfragile/mcp-server)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Savirinc/unfragile-mcp-server/blob/main/LICENSE)
+**Search for everything an agent can invoke. Every result labelled. For humans, agents and robots.**
 
-Query the [Unfragile match graph](https://unfragile.ai) from any AI agent. Find AI artifacts, discover MCP servers, assemble stacks, compare alternatives, and fetch trust passports. Every query feeds the graph.
+[Unfragile](https://unfragile.ai) is the neutral search layer for developers, agents and robots. This package gives any MCP client (Claude Code, Claude Desktop, Cursor, Windsurf, Cline, your own runtime) seven tools over the Unfragile index: 2.2 million tool actions read from MCP servers, APIs, CLIs, SDKs, models, robots and devices, each checked by machine and labelled with what the check found.
 
-Unfragile is built for the agent era: humans click links, agents call capabilities. This server gives Claude Code, Cursor, Windsurf, Claude Desktop, and custom MCP clients a runtime discovery and trust layer for AI artifacts.
+- **Labelled, never softened.** Every result carries one of: `verified and signed` · `official` · `found in code, not yet checked` · `demo or tutorial` · `failed its last check`. Labels are the instruments' verdict; no ranking, model or payment changes them.
+- **Signed.** Verified records carry an Ed25519 trust passport you can verify offline against the [published public key](https://unfragile.ai/api/v1/trust-passport-public-key).
+- **Honest no.** When nothing fits, `unfragile_find` says so and asks one question back. Retrieval and ranking are deterministic; the one language model in the system writes the single-sentence pick behind `answer: true` and may only choose among labelled results.
+- **Free, no key.** Every tool calls the public API at unfragile.ai.
+
+Guides: [for agents](https://unfragile.ai/agents) · [for developers](https://unfragile.ai/developers) · [for robots](https://unfragile.ai/robots) · [API reference](https://unfragile.ai/docs)
 
 ## Install
+
+One line on a machine with Claude Code (prints the configuration block on any other machine):
+
+```bash
+curl -fsSL https://unfragile.ai/install.sh | sh
+```
 
 ### Claude Code
 
@@ -16,39 +25,9 @@ Unfragile is built for the agent era: humans click links, agents call capabiliti
 claude mcp add unfragile -- npx -y @unfragile/mcp-server
 ```
 
-### Claude Desktop
+### Claude Desktop, Cursor, Windsurf, Cline, any MCP client
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "unfragile": {
-      "command": "npx",
-      "args": ["-y", "@unfragile/mcp-server"]
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to `.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "unfragile": {
-      "command": "npx",
-      "args": ["-y", "@unfragile/mcp-server"]
-    }
-  }
-}
-```
-
-### Windsurf
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
+Add to the client's MCP configuration (Claude Desktop: `~/Library/Application Support/Claude/claude_desktop_config.json`; Cursor: `.cursor/mcp.json`; Windsurf: `~/.codeium/windsurf/mcp_config.json`):
 
 ```json
 {
@@ -63,43 +42,64 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| `search` | Find AI tools by intent. "best framework for building AI agents" |
-| `find_mcps` | Discover MCP servers by capability. "Postgres + Slack integration" |
-| `get_artifact` | Get full details + capabilities for a specific artifact |
-| `resolve_capability` | Resolve a `capability://...` URI to ranked trusted artifacts |
-| `trust_passport` | Get machine-readable trust evidence: capability URIs, permissions, data access risk, failure modes |
-| `compare` | Compare two artifacts side-by-side |
-| `find_stack` | Assemble a complete harness stack for a use case |
-| `feedback` | Report success/failure to improve future routing |
-| `subscribe` | Watch for new artifacts matching a capability need |
-| `unsubscribe` | Cancel a monitor |
+| Tool | What it does |
+|------|--------------|
+| `unfragile_find` | **The headline call.** Arguments: `task`, `limit` (1–20), `answer` (boolean). The tool ACTION that does a task, across 2.2 million actions. Meaning search and word search fused, ranked by measured trust, reranked. Every result labelled. `answer: true` adds one definite pick with its reasoning, or an honest no with one question back. |
+| `unfragile_answer` | One verified software record for a need, with evidence (tier, score, signed passport, freshness, adoption), a paste-ready install snippet and honest alternatives, or an honest no. |
+| `unfragile_search` | A ranked list of software records with per-record evidence, for when a list beats the single pick. |
+| `unfragile_verify` | **Verify before invoke.** A conservative verdict for a target, `trusted` · `caution` · `unverified` · `flagged`, with the signed passport attached. Never invoke a `flagged` target; treat `unverified` as review-first. Unknown is never safe. |
+| `unfragile_resolve` | One intent in; one record, verdict, signed passport and invocation snippet out, in a single call. |
+| `unfragile_passport` | The raw Ed25519-signed trust passport for a record, for programmatic policy checks, verifiable offline. |
+| `unfragile_stats` | Live index numbers by door type. |
 
-## Examples
+## The command line: verify before you install
 
-Once installed, ask your agent:
+The same package ships an `unfragile` command.
 
-- "Find me MCP servers for Postgres and Slack"
-- "Resolve capability://database.postgres.query.readonly"
-- "What's the best framework for building AI agents?"
-- "Compare LangChain vs CrewAI"
-- "Get the trust passport for Cursor"
-- "I'm building a customer support agent — what tools do I need?"
-- "Get details on Cursor's capabilities"
+```bash
+# Check a target before installing (exit code 1 = flagged, stop)
+npx -p @unfragile/mcp-server unfragile verify npm:postmark-mcp
+
+# Guard a real install: verifies the target first, blocks on FLAGGED
+npx -p @unfragile/mcp-server unfragile guard -- claude mcp add pg -- npx -y @scope/pg-mcp
+```
+
+`guard` extracts the install target from a `claude mcp add` / `npx` / `uvx` command, verifies it, and blocks a `flagged` verdict (unless `--force`, which is logged). Every verdict is Ed25519-signed. If verification is unreachable the CLI says so and treats the target as UNVERIFIED; it never fails silently open.
+
+## Ask your agent
+
+- "Find the tool that refunds a Stripe payment and tell me its label."
+- "Which action turns off the living room lights? Verified ones only."
+- "Verify npm:some-mcp-package before installing it."
+- "Get the signed trust passport for the pick."
+- "How big is the index right now?"
+
+## The rules
+
+1. Labels are the instruments' verdict. Read the label before acting on a result.
+2. Never invoke a `failed` or `flagged` target. Treat `found in code, not yet checked` as review-first.
+3. An honest no is an answer. Do not fill the gap with a guess.
+4. Cite the passport. A verified result's `url` is its signed passport.
+
+**Rankings are never for sale.** Vendors may pay to have their own record checked sooner, never to change an answer or a label.
 
 ## How it works
 
-The MCP server calls the [Unfragile API](https://unfragile.ai/docs) under the hood. Search and stack queries become match records in the graph. Trust passport requests use `/api/v1/passport/{slug}` to return artifact identity, capability URIs, constraints, permissions, data access risk, observed outcomes, and UnfragileRank evidence.
+Every tool calls the free public [Unfragile API](https://unfragile.ai/docs): `/api/v1/find`, `/api/answer`, `/api/v1/search`, `/api/v1/verify`, `/api/v1/resolve`, `/api/v1/passport`, `/api/v1/stats`. The search runs on Unfragile's own GPU: a meaning index and a word index over the actions, fused and reranked, with trust as a measured nudge, never a label change. [How we check](https://unfragile.ai/how).
 
-13,160 active AI artifacts. 106,955 capabilities. 24 populated software categories. The match graph for AI.
-
-## Environment Variables
+## Environment variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `UNFRAGILE_API_URL` | API base URL | `https://unfragile.ai` |
-| `UNFRAGILE_API_KEY` | API key for higher rate limits | (none) |
+| `UNFRAGILE_API_KEY` | Optional key for higher rate limits (CLI guard) | (none) |
+
+## Links
+
+- For agents, as markdown: <https://unfragile.ai/agents.md> · for robots: <https://unfragile.ai/robots.md>
+- API reference: <https://unfragile.ai/docs>
+- How we check and verify a passport offline: <https://unfragile.ai/how>
+- Live index numbers: <https://unfragile.ai/api/v1/stats>
 
 ## License
 
