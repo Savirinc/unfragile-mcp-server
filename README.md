@@ -92,6 +92,8 @@ Every tool calls the free public [Unfragile API](https://unfragile.ai/docs): `/a
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `UNFRAGILE_API_URL` | API base URL | `https://unfragile.ai` |
+| `UNFRAGILE_MONITOR` | Name your monitoring or test traffic: it is measured, never used to train the ranking | — |
+| `UNFRAGILE_HEADERS` | Extra request headers as JSON, e.g. `{"x-team":"qa"}` | — |
 | `UNFRAGILE_API_KEY` | Optional key for higher rate limits (CLI guard) | (none) |
 
 ## Links

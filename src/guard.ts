@@ -17,6 +17,8 @@ import { spawn } from "node:child_process";
 
 const API_BASE = process.env.UNFRAGILE_API_URL || "https://unfragile.ai";
 const API_KEY = process.env.UNFRAGILE_API_KEY || "";
+// monitoring traffic is measured, never learned from (see index.ts)
+const MONITOR: Record<string, string> = process.env.UNFRAGILE_MONITOR ? { "x-unfragile-monitor": process.env.UNFRAGILE_MONITOR } : {};
 
 type Verdict = "trusted" | "caution" | "unverified" | "flagged";
 interface VerifyResponse {
@@ -56,7 +58,7 @@ function extractTarget(args: string[]): string | null {
 async function callVerify(target: string, intent?: string, action?: string): Promise<VerifyResponse> {
   const res = await fetch(`${API_BASE}/api/v1/verify`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(API_KEY ? { "X-API-Key": API_KEY } : {}) },
+    headers: { "Content-Type": "application/json", ...(API_KEY ? { "X-API-Key": API_KEY } : {}), ...MONITOR },
     body: JSON.stringify({ target, intent, action }),
     signal: AbortSignal.timeout(15000),
   });
@@ -111,7 +113,8 @@ BEHAVIOR
 
 ENV
   UNFRAGILE_API_URL  (default https://unfragile.ai)
-  UNFRAGILE_API_KEY  (optional — higher rate limits)`);
+  UNFRAGILE_API_KEY  (optional — higher rate limits)
+  UNFRAGILE_MONITOR  (optional — name your monitor: its checks are measured, never learned from)`);
 }
 
 function getFlag(args: string[], name: string): string | undefined {
