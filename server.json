@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Savirinc/unfragile",
-  "description": "The match graph for AI. Search 100K+ capabilities across 13K+ AI artifacts.",
+  "description": "Search 2.2M tool actions for agents and robots, every result labelled. Find, verify, passports.",
   "repository": {
-    "url": "https://github.com/Savirinc/Unfragile.ai",
+    "url": "https://github.com/Savirinc/unfragile-mcp-server",
     "source": "github"
   },
-  "version": "0.3.2",
+  "version": "0.10.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@unfragile/mcp-server",
-      "version": "0.3.2",
+      "version": "0.10.1",
       "transport": {
         "type": "stdio"
       }

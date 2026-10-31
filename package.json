@@ -1,36 +1,42 @@
 {
   "name": "@unfragile/mcp-server",
-  "version": "0.3.2",
+  "version": "0.10.1",
   "mcpName": "io.github.Savirinc/unfragile",
-  "description": "Unfragile MCP Server — agent-native discovery, trust, and routing for AI artifacts.",
+  "description": "Search 2.2M tool actions for agents and robots, every result labelled. Find, verify, passports.",
   "keywords": [
     "mcp",
+    "mcp-server",
     "ai",
+    "agents",
+    "robots",
     "tools",
+    "tool-search",
     "discovery",
     "trust",
-    "routing",
-    "capabilities",
-    "unfragile",
-    "harness-engineering"
+    "verification",
+    "ed25519",
+    "trust-passport",
+    "unfragile"
   ],
   "license": "MIT",
+  "homepage": "https://unfragile.ai/mcp",
   "author": "Unfragile <hello@unfragile.ai>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Savirinc/Unfragile.ai",
-    "directory": "mcp-server"
+    "url": "git+https://github.com/Savirinc/unfragile-mcp-server.git"
   },
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "unfragile-mcp": "dist/index.js"
+    "mcp-server": "dist/index.js",
+    "unfragile-mcp": "dist/index.js",
+    "unfragile": "dist/guard.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/index.js",
+    "build": "tsc && chmod +x dist/index.js dist/guard.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run build"
