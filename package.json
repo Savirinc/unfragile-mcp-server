@@ -1,6 +1,6 @@
 {
   "name": "@unfragile/mcp-server",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "mcpName": "io.github.Savirinc/unfragile",
   "description": "Search 2.2M tool actions for agents and robots, every result labelled. Find, verify, passports.",
   "keywords": [
