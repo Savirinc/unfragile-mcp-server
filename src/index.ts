@@ -25,6 +25,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const API_BASE = process.env.UNFRAGILE_API_URL || "https://unfragile.ai";
+const VERSION = "0.11.0";
 // Monitoring and test traffic (UNFRAGILE_MONITOR=<your monitor's name>) is measured by Unfragile but never learned
 // from: it is left out of the search log the ranking is trained on. UNFRAGILE_HEADERS adds any headers as JSON.
 const EXTRA: Record<string, string> = {
@@ -79,12 +80,12 @@ function fmtRecord(r: any): string {
 
 const server = new McpServer({
   name: "unfragile",
-  version: "0.10.3",
+  version: VERSION,
 });
 
 server.tool(
   "unfragile_answer",
-  "THE headline call: describe what you need and get ONE verified answer from the Unfragile corpus — fresh (crawled weekly), tested (machine-verified with honest tiers), signed (Ed25519 trust passport) — plus a paste-ready install snippet and honest alternatives. Deterministic: same query, same answer. If nothing qualifies, returns an honest 'no confident answer' instead of a guess — trust the abstention.",
+  "THE headline call: describe what you need and get ONE verified answer from the Unfragile corpus — fresh (crawled weekly), tested (machine-verified with honest tiers), signed (Ed25519 trust passport) — plus a paste-ready install snippet and honest alternatives. Same question, same answer (stored per question for 24 h). It names one product only when it does the task and was checked by us, through its maker's own door when there is one; otherwise an honest 'no confident answer' — trust the abstention.",
   { query: z.string().describe("What you need, e.g. 'query postgres' or 'stripe payments'") },
   async ({ query }) => {
     log("answer", query);
@@ -146,12 +147,14 @@ server.tool(
     limit: z.number().min(1).max(20).optional().describe("Max results (default 5)"),
     answer: z.boolean().optional().describe("Also return a written answer: the products that do it, each cited to its maker's own pages (default false)"),
     search: z.string().max(160).optional().describe("Optional: your own 3–10 word search phrase. Skips our understanding step — faster, and the same input always gives the same results"),
-    intent: z.enum(["product", "action"]).optional().describe("With search: 'product' (which product does X) or 'action' (the one operation to call)"),
+    kind: z.enum(["product", "action", "model"]).optional().describe("With search: 'product' (which product does X), 'action' (the one operation to call) or 'model' (which AI model)"),
+    intent: z.enum(["product", "action", "model"]).optional().describe("Deprecated: the old name of `kind` (kept so 0.10 callers work)"),
     named: z.array(z.string()).max(5).optional().describe("With search: products the task names (e.g. ['stripe']), so they lead"),
   },
-  async ({ task, limit, answer, search, intent, named }) => {
+  async ({ task, limit, answer, search, kind, intent, named }) => {
     log("find", task);
-    const extra = search ? `&search=${encodeURIComponent(search)}${intent ? `&intent=${intent}` : ""}${named?.length ? `&named=${encodeURIComponent(named.join(","))}` : ""}` : "";
+    const k = kind ?? intent;
+    const extra = search ? `&search=${encodeURIComponent(search)}${k ? `&intent=${k}` : ""}${named?.length ? `&named=${encodeURIComponent(named.join(","))}` : ""}` : "";
     const d = await get(`/api/v1/find?q=${encodeURIComponent(task)}&k=${limit ?? 5}${answer ? "&answer=1" : ""}${extra}`);
     if (!d.results?.length) return text(`Nothing found for "${task}".`);
     // one line per PRODUCT (the answer unit): its official doors first, then the best action and its label
@@ -262,7 +265,8 @@ server.tool(
   async () => {
     log("stats", "-");
     const d = await get(`/api/v1/stats`);
-    return text(JSON.stringify(d.corpus ?? d, null, 2));
+    // 0.11: the server says which version answered (the 0.10.3 audit could not tell from any output)
+    return text(JSON.stringify({ ...(d.corpus ?? d), server: { name: "@unfragile/mcp-server", version: VERSION, api: API_BASE } }, null, 2));
   },
 );
 
@@ -271,7 +275,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[unfragile] MCP server v0.10.3 — search for humans, agents and robots");
+  console.error(`[unfragile] MCP server v${VERSION} — search for humans, agents and robots`);
 }
 
 main().catch((err) => {
