@@ -6,12 +6,12 @@
     "url": "https://github.com/Savirinc/unfragile-mcp-server",
     "source": "github"
   },
-  "version": "0.10.2",
+  "version": "0.10.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@unfragile/mcp-server",
-      "version": "0.10.2",
+      "version": "0.10.3",
       "transport": {
         "type": "stdio"
       }

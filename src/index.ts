@@ -32,6 +32,8 @@ const EXTRA: Record<string, string> = {
   ...(process.env.UNFRAGILE_MONITOR ? { "x-unfragile-monitor": process.env.UNFRAGILE_MONITOR } : {}),
 };
 
+const PUBLIC_KEY = `${API_BASE}/api/v1/trust-passport-public-key`;
+
 function log(tool: string, query: string) {
   console.error(`[unfragile] ${tool}: ${query}`);
 }
@@ -77,7 +79,7 @@ function fmtRecord(r: any): string {
 
 const server = new McpServer({
   name: "unfragile",
-  version: "0.10.2",
+  version: "0.10.3",
 });
 
 server.tool(
@@ -169,6 +171,8 @@ server.tool(
         ? `ANSWER: unavailable (${a.error})\n\n`
         : `ANSWER${d.searched_as ? ` (read as: ${d.searched_as})` : ""}: ${a.summary}\n` +
           (a.products ?? []).map((p: any, i: number) => `  ${i + 1}. ${p.name}${p.vendor ? ` — ${p.vendor}` : ""}: ${p.what}${p.retired ? " (retired)" : ""}`).join("\n") +
+          (!(a.products ?? []).length ? `ABSTAINED: no confident answer — none of our checked products does this. Do not invoke a guess.\n` : "") +
+          ((a.suggested ?? []).length ? (a.suggested as any[]).map((s: any) => `  · ${s.name} — ${s.maker} <${s.url}> (found, not yet checked by us)`).join("\n") + "\n" : "") +
           (a.question ? `\nQuestion back: ${a.question}` : "") +
           ((a.sources ?? []).length ? `\nSources: ${(a.sources as any[]).map((s: any) => `[${s.n}] ${s.url}`).join(" ")}` : "") + "\n\n"
       : "";
@@ -187,10 +191,9 @@ server.tool(
       [
         `VERDICT for ${target}: **${String(d.verdict).toUpperCase()}**`,
         `  ${d.reason}`,
-        d.record ? `\n${fmtRecord(d.record)}` : "\n(not found in the verified corpus — unknown ≠ safe)",
-        d.passport
-          ? `\nSigned passport attached (signedAt ${d.passport.signedAt ?? "?"}). Verify offline via the published public key.`
-          : "",
+        d.record ? `\n${fmtRecord(d.record)}` : `\n(${d.known === false ? "not in our corpus yet: never checked, which says nothing either way" : "not found in the verified corpus"} — unknown ≠ safe)`,
+        // 0.10.3: the signed passport itself, so an agent can check the signature from this response (OpenAI's eval, 1 Nov)
+        d.passport ? `\nSigned passport: attached (verify offline against ${PUBLIC_KEY}):\n${JSON.stringify(d.passport)}` : "",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -206,17 +209,26 @@ server.tool(
     log("resolve", intent);
     const d = await post(`/api/v1/resolve`, { intent });
     if (!d.resolved) {
+      const n = d.noConfidentAnswer ?? {};
       return text(
-        `No confident resolution for "${intent}" — ${d.noConfidentAnswer?.reason ?? "nothing qualifies"}. Do not invoke a guess.`,
+        [
+          `ABSTAINED: no confident resolution for "${intent}" — ${n.reason ?? "nothing qualifies"}. Do not invoke a guess.`,
+          n.summary ? `  ${n.summary}` : "",
+          n.question ? `  Question back: ${n.question}` : "",
+          (d.suggested ?? []).length ? `  Not yet checked by us (never invoke unattended): ${(d.suggested as any[]).map((s) => `${s.name} <${s.url}>`).join(" · ")}` : "",
+        ].filter(Boolean).join("\n"),
       );
     }
     const r = d.resolved;
     return text(
       [
+        // the first line's shape is a contract parsers rely on: RESOLVED "<intent>" → **<record>** (verdict: <v>)
         `RESOLVED "${intent}" → **${r.name}** (verdict: ${r.verdict})`,
+        r.product ? `  product: ${r.product}${r.vendor ? ` (${r.vendor})` : ""} · door: ${r.door ?? (r.official ? "the maker's own" : "community")}` : "",
         r.why ? `  ${r.why}` : "",
+        r.documented?.operation ? `  operation (from the maker's docs, not yet checked by us): ${r.documented.operation}` : "",
         fmtRecord(r),
-        r.passport ? `  signed passport: attached (verify offline)` : `  signed passport: none`,
+        r.passport ? `  signed passport: attached (verify offline against ${PUBLIC_KEY}):\n${JSON.stringify(r.passport)}` : `  signed passport: none`,
         (d.alternatives ?? []).length
           ? `\nAlternatives: ${(d.alternatives as any[]).map((x) => x.name).join(" · ")}`
           : "",
@@ -233,8 +245,13 @@ server.tool(
   { slug: z.string().describe("Record page slug, record id (npm:…), or package name") },
   async ({ slug }) => {
     log("passport", slug);
-    const d = await get(`/api/v1/passport/${encodeURIComponent(slug)}`);
-    return text(JSON.stringify(d.passport ?? d, null, 2));
+    try {
+      const d = await get(`/api/v1/passport/${encodeURIComponent(slug)}`);
+      return text(JSON.stringify(d.passport ?? d, null, 2));
+    } catch (e) {
+      // always JSON, so programmatic callers can parse a miss too (0.10.3)
+      return text(JSON.stringify({ error: "passport not found", slug, detail: (e as Error).message, verified: false }, null, 2));
+    }
   },
 );
 
@@ -254,7 +271,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[unfragile] MCP server v0.9.1 — search for humans, agents and robots");
+  console.error("[unfragile] MCP server v0.10.3 — search for humans, agents and robots");
 }
 
 main().catch((err) => {
