@@ -11,6 +11,9 @@
 // `guard -- <cmd…>`  → extracts the install target from a `claude mcp add`
 //                      (or any `npx …`) command, verifies it, BLOCKS on
 //                      `flagged` (unless --force), then runs the real command.
+//                      FAILS CLOSED: if no target can be read, or verification
+//                      is unavailable or malformed, the command does NOT run
+//                      unless --allow-unverified is given (loud warning).
 // ─────────────────────────────────────────────────────────────
 
 import { spawn } from "node:child_process";
@@ -40,34 +43,103 @@ const C = {
 const isTTY = process.stdout.isTTY;
 const paint = (s: string, ...codes: string[]) => (isTTY ? codes.join("") + s + C.reset : s);
 
-/** Pull the most likely install target out of a wrapped command's args. */
-function extractTarget(args: string[]): string | null {
-  const joined = args.join(" ");
-  // npx [-y] <pkg>   (the common MCP-add shape)
-  const npx = joined.match(/npx\s+(?:-y\s+|--yes\s+)?(@?[\w./-]+)/);
-  if (npx) return `npm:${npx[1]}`;
-  // uvx / pipx <pkg>
-  const uvx = joined.match(/\b(?:uvx|pipx run)\s+(@?[\w./-]+)/);
-  if (uvx) return `pypi:${uvx[1]}`;
-  // an explicit prefixed ref or URL anywhere in the args
-  const ref = args.find((a) => /^(mcp|npm|pypi|github|gh):/.test(a) || /^https?:\/\//.test(a));
-  if (ref) return ref;
-  return null;
+// ── package-argument parser: mirrors app/src/lib/harness/agent-api.ts packageTargetFromCommand (#449) ──
+const NPM_NAME = /^(?:@[A-Za-z0-9~-][A-Za-z0-9._~-]*\/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*$/;
+const isValidNpmName = (n: string) => n.length > 0 && n.length <= 214 && NPM_NAME.test(n);
+const NPM_VALUE_FLAGS = new Set(["--registry", "--cache", "--userconfig", "--prefix", "-w", "--workspace", "--tag", "-c", "--call"]);
+const UV_VALUE_FLAGS = new Set(["--with", "-w", "--python", "-p", "--index", "--index-url", "--extra-index-url", "--default-index", "-i"]);
+const PIPX_VALUE_FLAGS = new Set(["--python", "--index-url", "-i", "--pip-args"]);
+const PIP_VALUE_FLAGS = new Set(["-i", "--index-url", "--extra-index-url", "-c", "--constraint", "-t", "--target", "--prefix", "--root", "--python", "-f", "--find-links"]);
+const INSTALLER = /^(npx|bunx|npm|pnpm|yarn|bun|uvx|uv|pipx|pip[0-9.]*|python[0-9.]*)$/;
+
+/** The package an install/run command (as words) names, as npm:/pypi: target; null when none can be read. */
+function packageTargetFromWords(input: string[]): string | null {
+  const words = [...input];
+  while (words.length > 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();   // FOO=bar npx ...
+  if (words.length < 2) return null;
+  const bin = words[0].replace(/^.*\//, "").toLowerCase();
+  const sub = words[1].toLowerCase();
+  let eco: "npm" | "pypi";
+  let args: string[];
+  let valueFlags: Set<string>;
+  let specFlags: Set<string>;   // flags whose value IS the package (npx -p pkg, uvx --from pkg, pipx --spec pkg)
+  if (bin === "npx" || bin === "bunx") {
+    [eco, args, valueFlags, specFlags] = ["npm", words.slice(1), NPM_VALUE_FLAGS, new Set(["-p", "--package"])];
+  } else if (["npm", "pnpm", "yarn", "bun"].includes(bin) && ["i", "install", "add", "dlx", "exec", "x"].includes(sub)) {
+    [eco, args, valueFlags, specFlags] = ["npm", words.slice(2), NPM_VALUE_FLAGS, new Set(["-p", "--package"])];
+  } else if (bin === "uvx") {
+    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(1), UV_VALUE_FLAGS, new Set(["--from"])];
+  } else if (bin === "uv" && sub === "tool" && ["install", "run"].includes((words[2] ?? "").toLowerCase())) {
+    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(3), UV_VALUE_FLAGS, new Set(["--from"])];
+  } else if (bin === "pipx" && ["install", "run"].includes(sub)) {
+    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(2), PIPX_VALUE_FLAGS, new Set(["--spec"])];
+  } else {
+    // pip install / pip3 install / python -m pip install / uv pip install
+    const at = words.findIndex((w, i) => /^pip[0-9.]*$/.test(w.replace(/^.*\//, "").toLowerCase()) && (words[i + 1] ?? "").toLowerCase() === "install");
+    if (at < 0) return null;
+    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(at + 2), PIP_VALUE_FLAGS, new Set()];
+    if (args.some((a) => ["-r", "--requirement", "-e", "--editable"].includes(a))) return null;
+  }
+  let spec: string | null = null;
+  for (let i = 0; i < args.length && spec === null; i++) {
+    const a = args[i];
+    if (a === "--") continue;
+    if (a.startsWith("-")) {
+      const eq = a.indexOf("=");
+      const flag = eq > 0 ? a.slice(0, eq) : a;
+      if (specFlags.has(flag)) spec = eq > 0 ? a.slice(eq + 1) : args[i + 1] ?? null;
+      else if (eq < 0 && valueFlags.has(flag)) i++;
+      continue;
+    }
+    spec = a;
+  }
+  if (!spec) return null;
+  if (eco === "npm") {
+    const at = spec.indexOf("@", spec.startsWith("@") ? 1 : 0);
+    const name = at > 0 ? spec.slice(0, at) : spec;
+    return isValidNpmName(name) ? `npm:${name}` : null;
+  }
+  const name = spec.split(/[[<>=!~;@\s]/)[0];
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? `pypi:${name}` : null;
 }
+
+/** The install target in a wrapped command (e.g. `claude mcp add pg -- npx -y @scope/pg-mcp`): the first installer
+ *  invocation whose package argument we can read, else an explicit prefixed ref or URL. Null = no target. */
+function extractTarget(args: string[]): string | null {
+  for (let i = 0; i < args.length; i++) {
+    if (!INSTALLER.test(args[i].replace(/^.*\//, "").toLowerCase())) continue;
+    const t = packageTargetFromWords(args.slice(i));
+    if (t) return t;
+  }
+  const ref = args.find((a) => /^(mcp|npm|pypi|github|gh):/.test(a) || /^https?:\/\//.test(a));
+  return ref ?? null;
+}
+
+const VERDICTS = new Set<Verdict>(["trusted", "caution", "unverified", "flagged"]);
 
 async function callVerify(target: string, intent?: string, action?: string): Promise<VerifyResponse> {
   const res = await fetch(`${API_BASE}/api/v1/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(API_KEY ? { "X-API-Key": API_KEY } : {}), ...MONITOR },
     body: JSON.stringify({ target, intent, action }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(Number(process.env.UNFRAGILE_VERIFY_TIMEOUT_MS) || 15000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as VerifyResponse;
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error("malformed reply: not JSON");
+  }
+  const verdict = (body as VerifyResponse | null)?.verdict;
+  if (!body || typeof body !== "object" || !verdict || !VERDICTS.has(verdict)) {
+    throw new Error("malformed reply: no valid verdict");
+  }
+  return body as VerifyResponse;
 }
 
 function printVerdict(target: string, v: VerifyResponse): Verdict {
-  const verdict = (v.verdict || "unverified") as Verdict;
+  const verdict = v.verdict as Verdict;
   const badge =
     verdict === "trusted" ? paint(" TRUSTED ", C.bold, C.green)
     : verdict === "caution" ? paint(" CAUTION ", C.bold, C.yellow)
@@ -98,7 +170,7 @@ INSTALL
 
 USAGE
   unfragile verify <target> [--intent "..."] [--action read|write|execute]
-  unfragile guard [--force] -- <command...>
+  unfragile guard [--force] [--allow-unverified] -- <command...>
 
 EXAMPLES
   unfragile verify mcp:@modelcontextprotocol/server-postgres
@@ -108,12 +180,17 @@ EXAMPLES
 
 BEHAVIOR
   Prints a signed verdict (trusted | caution | unverified | flagged).
-  'guard' runs your command only if the target is not FLAGGED.
-  Use --force to override a flagged target (logged). Exit 1 on flagged/block.
+  'guard' runs your command only if verification succeeded and the target is not FLAGGED.
+  It FAILS CLOSED: if no install target can be read from the command, or verification is
+  unavailable (network error, timeout, non-2xx, malformed reply), the command does not run.
+  Use --allow-unverified to run it anyway in those cases (loud warning).
+  Use --force to override a flagged target (logged).
+  Exit 1 on flagged; exit 3 when blocked because verification could not be completed.
 
 ENV
   UNFRAGILE_API_URL  (default https://unfragile.ai)
   UNFRAGILE_API_KEY  (optional — higher rate limits)
+  UNFRAGILE_VERIFY_TIMEOUT_MS  (optional — verify timeout, default 15000; a timeout blocks the guard)
   UNFRAGILE_MONITOR  (optional — name your monitor: its checks are measured, never learned from)`);
 }
 
@@ -150,17 +227,32 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "guard") {
-    const force = argv.includes("--force");
     const sep = argv.indexOf("--");
     if (sep < 0 || sep + 1 >= argv.length) {
       console.error("error: `unfragile guard -- <command...>` requires a command after `--`.");
       process.exit(1);
     }
+    // guard's own flags live before `--`; the wrapped command's flags are never read as ours
+    const own = argv.slice(1, sep);
+    const force = own.includes("--force");
+    const allowUnverified = own.includes("--allow-unverified");
     const wrapped = argv.slice(sep + 1);
     const target = extractTarget(wrapped);
 
+    /** Verification could not be completed: block (exit 3) unless --allow-unverified. */
+    const unverifiable = (why: string): void => {
+      if (allowUnverified) {
+        console.error(paint(`  ⚠ WARNING: ${why}. Running the command UNVERIFIED because --allow-unverified was given.`, C.bold, C.yellow));
+        return;
+      }
+      console.error(paint(`  ✗ BLOCKED — ${why}. The command was not run.`, C.bold, C.red));
+      console.error(paint("  The guard fails closed. Fix the cause and retry, check the target with `unfragile verify <target>`,", C.gray));
+      console.error(paint("  or re-run with --allow-unverified (before `--`) to run it without verification.", C.gray));
+      process.exit(3);
+    };
+
     if (!target) {
-      console.error(paint("  no install target detected in command — running unguarded.", C.gray));
+      unverifiable("no install target detected in the command, so nothing could be verified");
     } else {
       try {
         const v = await callVerify(target, undefined, "execute");
@@ -173,7 +265,7 @@ async function main(): Promise<void> {
           console.error(paint("  ⚠ proceeding despite FLAGGED verdict (--force).", C.yellow));
         }
       } catch (err) {
-        console.error(paint(`  verify unavailable (${err instanceof Error ? err.message : String(err)}) — proceeding unguarded.`, C.yellow));
+        unverifiable(`verification unavailable for ${target} (${err instanceof Error ? err.message : String(err)})`);
       }
     }
 

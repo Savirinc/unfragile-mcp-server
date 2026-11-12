@@ -64,7 +64,20 @@ npx -p @unfragile/mcp-server unfragile verify npm:postmark-mcp
 npx -p @unfragile/mcp-server unfragile guard -- claude mcp add pg -- npx -y @scope/pg-mcp
 ```
 
-`guard` extracts the install target from a `claude mcp add` / `npx` / `uvx` command, verifies it, and blocks a `flagged` verdict (unless `--force`, which is logged). Every verdict is Ed25519-signed. If verification is unreachable the CLI says so and treats the target as UNVERIFIED; it never fails silently open.
+`guard` extracts the install target from a `claude mcp add` / `npx` / `uvx` / `pip install` command, verifies it, and blocks a `flagged` verdict (unless `--force`, which is logged). Every verdict is Ed25519-signed.
+
+`guard` **fails closed**. If it cannot read an install target from the command, or verification fails (network error, timeout, non-2xx reply, malformed reply), the wrapped command does not run and the guard exits `3` with the reason. To run the command anyway, pass `--allow-unverified` before the `--`; the guard then prints a loud warning and runs it unverified. `--allow-unverified` never overrides a `flagged` verdict.
+
+```bash
+# Run unverified on purpose (prints a warning)
+npx -p @unfragile/mcp-server unfragile guard --allow-unverified -- claude mcp add pg -- npx -y @scope/pg-mcp
+```
+
+| Guard result | Exit | Command runs? |
+|---|---|---|
+| `trusted` / `caution` / `unverified` verdict | the command's own | yes |
+| `flagged` verdict | 1 | no (`--force` overrides) |
+| verification failed, or no target in the command | 3 | no (`--allow-unverified` overrides) |
 
 ## Ask your agent
 
@@ -81,8 +94,6 @@ npx -p @unfragile/mcp-server unfragile guard -- claude mcp add pg -- npx -y @sco
 3. An honest no is an answer. Do not fill the gap with a guess.
 4. Cite the passport. A verified result's `url` is its signed passport.
 
-**Rankings are never for sale.** Vendors may pay to have their own record checked sooner, never to change an answer or a label.
-
 ## How it works
 
 Every tool calls the free public [Unfragile API](https://unfragile.ai/docs): `/api/v1/find`, `/api/answer`, `/api/v1/search`, `/api/v1/verify`, `/api/v1/resolve`, `/api/v1/passport`, `/api/v1/stats`. The search runs on Unfragile's own GPU: a meaning index and a word index over the actions, fused and reranked, with trust as a measured nudge, never a label change. [How we check](https://unfragile.ai/how).
@@ -95,6 +106,7 @@ Every tool calls the free public [Unfragile API](https://unfragile.ai/docs): `/a
 | `UNFRAGILE_MONITOR` | Name your monitoring or test traffic: it is measured, never used to train the ranking | — |
 | `UNFRAGILE_HEADERS` | Extra request headers as JSON, e.g. `{"x-team":"qa"}` | — |
 | `UNFRAGILE_API_KEY` | Optional key for higher rate limits (CLI guard) | (none) |
+| `UNFRAGILE_VERIFY_TIMEOUT_MS` | CLI verify timeout; a timeout blocks `guard` | `15000` |
 
 ## Links
 
