@@ -25,7 +25,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 const API_BASE = process.env.UNFRAGILE_API_URL || "https://unfragile.ai";
-const VERSION = "0.12.0";
+const VERSION = "0.12.1";
 // Monitoring and test traffic (UNFRAGILE_MONITOR=<your monitor's name>) is measured by Unfragile but never learned
 // from: it is left out of the search log the ranking is trained on. UNFRAGILE_HEADERS adds any headers as JSON.
 const EXTRA: Record<string, string> = {

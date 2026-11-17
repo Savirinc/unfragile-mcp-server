@@ -50,55 +50,84 @@ const NPM_VALUE_FLAGS = new Set(["--registry", "--cache", "--userconfig", "--pre
 const UV_VALUE_FLAGS = new Set(["--with", "-w", "--python", "-p", "--index", "--index-url", "--extra-index-url", "--default-index", "-i"]);
 const PIPX_VALUE_FLAGS = new Set(["--python", "--index-url", "-i", "--pip-args"]);
 const PIP_VALUE_FLAGS = new Set(["-i", "--index-url", "--extra-index-url", "-c", "--constraint", "-t", "--target", "--prefix", "--root", "--python", "-f", "--find-links"]);
+const NPM_SOURCE_FLAGS = new Set(["--registry", "-c", "--call"]);   // -c/--call: npx runs a shell string, not a package
+/** An environment word that points an installer at another registry, index or links page (`npm_config_registry=…`,
+ *  `PIP_INDEX_URL=…`, `UV_INDEX_URL=…`): the command then installs from a source we never verify. */
+const SOURCE_ENV = /^(npm_config_|yarn_|pnpm_config_|bun_config_|pip_|pipx_|uv_)[a-z0-9_]*(registry|index|find_links|extra)/i;
+
+const UV_SOURCE_FLAGS = new Set(["--with", "-w", "--with-requirements", "--with-editable", "--index", "--index-url", "--extra-index-url", "--default-index", "-i", "-f", "--find-links"]);
+const PIPX_SOURCE_FLAGS = new Set(["--index-url", "-i", "--pip-args", "--preinstall"]);
+const PIP_SOURCE_FLAGS = new Set(["-i", "--index-url", "--extra-index-url", "-f", "--find-links"]);
 const INSTALLER = /^(npx|bunx|npm|pnpm|yarn|bun|uvx|uv|pipx|pip[0-9.]*|python[0-9.]*)$/;
 
 /** The package an install/run command (as words) names, as npm:/pypi: target; null when none can be read. */
 function packageTargetFromWords(input: string[]): string | null {
   const words = [...input];
-  while (words.length > 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words.shift();   // FOO=bar npx ...
+  if (words[0] === "env") words.shift();   // env FOO=bar npm install ...
+  while (words.length > 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {   // FOO=bar npx ...
+    if (SOURCE_ENV.test(words[0])) return null;   // npm_config_registry=… / PIP_INDEX_URL=… : another source
+    words.shift();
+  }
   if (words.length < 2) return null;
   const bin = words[0].replace(/^.*\//, "").toLowerCase();
   const sub = words[1].toLowerCase();
   let eco: "npm" | "pypi";
   let args: string[];
   let valueFlags: Set<string>;
-  let specFlags: Set<string>;   // flags whose value IS the package (npx -p pkg, uvx --from pkg, pipx --spec pkg)
+  let specFlags: Set<string>;     // flags whose value IS the package (npx -p pkg, uvx --from pkg, pipx --spec pkg)
+  let sourceFlags: Set<string>;   // flags that add a package or fetch from another source: never verified, so no verdict
+  let run: boolean;               // a run command: words after the package belong to the tool being run
   if (bin === "npx" || bin === "bunx") {
-    [eco, args, valueFlags, specFlags] = ["npm", words.slice(1), NPM_VALUE_FLAGS, new Set(["-p", "--package"])];
+    [eco, args, valueFlags, specFlags, sourceFlags, run] = ["npm", words.slice(1), NPM_VALUE_FLAGS, new Set(["-p", "--package"]), NPM_SOURCE_FLAGS, true];
   } else if (["npm", "pnpm", "yarn", "bun"].includes(bin) && ["i", "install", "add", "dlx", "exec", "x"].includes(sub)) {
-    [eco, args, valueFlags, specFlags] = ["npm", words.slice(2), NPM_VALUE_FLAGS, new Set(["-p", "--package"])];
+    [eco, args, valueFlags, specFlags, sourceFlags, run] = ["npm", words.slice(2), NPM_VALUE_FLAGS, new Set(["-p", "--package"]), NPM_SOURCE_FLAGS, ["dlx", "exec", "x"].includes(sub)];
   } else if (bin === "uvx") {
-    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(1), UV_VALUE_FLAGS, new Set(["--from"])];
+    [eco, args, valueFlags, specFlags, sourceFlags, run] = ["pypi", words.slice(1), UV_VALUE_FLAGS, new Set(["--from"]), UV_SOURCE_FLAGS, true];
   } else if (bin === "uv" && sub === "tool" && ["install", "run"].includes((words[2] ?? "").toLowerCase())) {
-    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(3), UV_VALUE_FLAGS, new Set(["--from"])];
+    [eco, args, valueFlags, specFlags, sourceFlags, run] = ["pypi", words.slice(3), UV_VALUE_FLAGS, new Set(["--from"]), UV_SOURCE_FLAGS, words[2].toLowerCase() === "run"];
   } else if (bin === "pipx" && ["install", "run"].includes(sub)) {
-    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(2), PIPX_VALUE_FLAGS, new Set(["--spec"])];
+    [eco, args, valueFlags, specFlags, sourceFlags, run] = ["pypi", words.slice(2), PIPX_VALUE_FLAGS, new Set(["--spec"]), PIPX_SOURCE_FLAGS, sub === "run"];
   } else {
     // pip install / pip3 install / python -m pip install / uv pip install
     const at = words.findIndex((w, i) => /^pip[0-9.]*$/.test(w.replace(/^.*\//, "").toLowerCase()) && (words[i + 1] ?? "").toLowerCase() === "install");
     if (at < 0) return null;
-    [eco, args, valueFlags, specFlags] = ["pypi", words.slice(at + 2), PIP_VALUE_FLAGS, new Set()];
-    if (args.some((a) => ["-r", "--requirement", "-e", "--editable"].includes(a))) return null;
+    [eco, args, valueFlags, specFlags, sourceFlags, run] = ["pypi", words.slice(at + 2), PIP_VALUE_FLAGS, new Set(), PIP_SOURCE_FLAGS, false];
+    if (args.some((a) => ["-r", "--requirement", "-e", "--editable"].includes(a.split("=")[0]))) return null;   // a file names packages we never see
   }
-  let spec: string | null = null;
-  for (let i = 0; i < args.length && spec === null; i++) {
+  // Fail closed (17 Nov 2026, security audit 2026-11-16): a command that installs more than one package, or fetches from
+  // another registry, index or link, is never reduced to one package's verdict. `npm install trusted other`,
+  // `npx --registry <url> trusted` and `uvx --with evil good` used to return the trusted package's verdict.
+  let flagSpec: string | null = null, specUses = 0;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (run && (positional.length > 0 || (flagSpec !== null && a === "--"))) break;   // the tool's own words follow
     if (a === "--") continue;
     if (a.startsWith("-")) {
       const eq = a.indexOf("=");
       const flag = eq > 0 ? a.slice(0, eq) : a;
-      if (specFlags.has(flag)) spec = eq > 0 ? a.slice(eq + 1) : args[i + 1] ?? null;
-      else if (eq < 0 && valueFlags.has(flag)) i++;
+      if (sourceFlags.has(flag) || /^--@[^:]+:registry$/.test(flag)) return null;
+      if (specFlags.has(flag)) {
+        if (++specUses > 1) return null;
+        flagSpec = eq > 0 ? a.slice(eq + 1) : args[i + 1] ?? null;
+        if (eq < 0) i++;
+      } else if (eq < 0 && valueFlags.has(flag)) i++;
       continue;
     }
-    spec = a;
+    positional.push(a);
   }
+  if (!run && positional.length > 1) return null;   // an install naming two packages
+  const spec = flagSpec ?? positional[0] ?? null;
   if (!spec) return null;
   if (eco === "npm") {
+    // an alias, a URL, a git or GitHub reference, a path or a tarball installs something other than the name it shows
+    if (/(^|@)npm:/.test(spec) || /^[a-z+]+:/i.test(spec) || /^[.~/]/.test(spec) || /\.(tgz|tar\.gz)$/i.test(spec) || (!spec.startsWith("@") && spec.includes("/"))) return null;
     const at = spec.indexOf("@", spec.startsWith("@") ? 1 : 0);
     const name = at > 0 ? spec.slice(0, at) : spec;
     return isValidNpmName(name) ? `npm:${name}` : null;
   }
+  // a direct reference (`pkg @ https://…`, `pkg@git+…`), a URL, a path or an archive is not the PyPI package it names
+  if (/:\/\//.test(spec) || /^[.~/]/.test(spec) || /\.(whl|tar\.gz|zip)$/i.test(spec) || /@.*[:/]/.test(spec)) return null;
   const name = spec.split(/[[<>=!~;@\s]/)[0];
   return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) ? `pypi:${name}` : null;
 }
@@ -108,8 +137,12 @@ function packageTargetFromWords(input: string[]): string | null {
 function extractTarget(args: string[]): string | null {
   for (let i = 0; i < args.length; i++) {
     if (!INSTALLER.test(args[i].replace(/^.*\//, "").toLowerCase())) continue;
-    const t = packageTargetFromWords(args.slice(i));
-    if (t) return t;
+    // an environment word in front of the installer (`npm_config_registry=… npm install`) points it at another source
+    if (args.slice(0, i).some((a) => SOURCE_ENV.test(a))) return null;
+    // the FIRST installer decides: one we could not reduce to one package (two packages, another registry, an alias,
+    // `… && npm install evil` as literal words) has no target. Never scan on to a later installer, and never fall back
+    // to an `npm:`-looking word (`npm install npm:trusted evil`), so the guard blocks
+    return packageTargetFromWords(args.slice(i));
   }
   const ref = args.find((a) => /^(mcp|npm|pypi|github|gh):/.test(a) || /^https?:\/\//.test(a));
   return ref ?? null;
@@ -251,8 +284,12 @@ async function main(): Promise<void> {
       process.exit(3);
     };
 
+    // the command inherits this environment: a registry or index set here installs from a source we never verify
+    const sourceEnv = Object.keys(process.env).find((k) => SOURCE_ENV.test(`${k}=`) && process.env[k]);
     if (!target) {
       unverifiable("no install target detected in the command, so nothing could be verified");
+    } else if (sourceEnv) {
+      unverifiable(`the environment variable ${sourceEnv} points the installer at another source, so ${target} cannot be verified`);
     } else {
       try {
         const v = await callVerify(target, undefined, "execute");
