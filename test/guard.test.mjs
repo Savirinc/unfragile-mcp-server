@@ -89,6 +89,17 @@ for (const [name, opts] of [
   ["timeout", { extra: pkg("slow-pkg"), env: { UNFRAGILE_VERIFY_TIMEOUT_MS: "500" } }],
   ["connection refused", { extra: pkg("safe-pkg"), api: "http://127.0.0.1:1" }],
   ["no install target", { extra: [] }],
+  // fail closed (security audit 2026-11-16): a command that installs more than the package it shows has no target
+  ["two packages (npm install trusted other)", { extra: ["npm", "install", "safe-pkg", "bad-pkg"] }],
+  ["another registry (npx --registry)", { extra: ["npx", "--registry", "https://example.invalid", "-y", "safe-pkg"] }],
+  ["an extra package (uvx --with)", { extra: ["uvx", "--with", "bad-pkg", "safe-pkg"] }],
+  ["an alias, with no fallback to the npm:-looking word", { extra: ["npm", "install", "npm:safe-pkg", "bad-pkg"] }],
+  // argv is spawned without a shell: `;` and `&&` arrive as literal words, so they are extra package words and block
+  ["`;` as a literal word", { extra: ["npm", "install", "safe-pkg", ";", "bad-pkg"] }],
+  ["`&&` as a literal word", { extra: ["npm", "install", "safe-pkg", "&&", "npm", "install", "bad-pkg"] }],
+  ["a registry set by an environment word", { extra: ["npm_config_registry=https://example.invalid", "npm", "install", "safe-pkg"] }],
+  ["a registry inherited from the guard's own environment", { extra: pkg("safe-pkg"), env: { npm_config_registry: "https://example.invalid" } }],
+  ["npx -c runs a shell string", { extra: ["npx", "-p", "safe-pkg", "-c", "echo hi"] }],
 ]) {
   test(`${name}: blocked by default, exit 3`, async () => {
     const r = await guard(opts);
@@ -114,6 +125,6 @@ test("guard flags after `--` belong to the wrapped command, not the guard", asyn
 
 test("package argument is read like the server parser: flag values are not the package", async () => {
   seen.length = 0;
-  await guard({ extra: ["npx", "--registry", "https://example.invalid", "-y", "safe-pkg@1.2.3", "--port", "9"] });
+  await guard({ extra: ["npx", "-y", "safe-pkg@1.2.3", "--port", "9", "--registry", "https://the-tool-s-own-flag.example"] });
   assert.deepEqual(seen, ["npm:safe-pkg"]);
 });
