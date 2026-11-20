@@ -1,0 +1,16 @@
+{
+  "name": "unfragile",
+  "description": "Unfragile's Claude Code plugin.",
+  "owner": {
+    "name": "Unfragile",
+    "email": "hello@unfragile.ai",
+    "url": "https://unfragile.ai"
+  },
+  "plugins": [
+    {
+      "name": "unfragile",
+      "source": "./claude-plugin",
+      "description": "Find the AI infrastructure or agent tool for a task, labelled by our checks, with signed receipts."
+    }
+  ]
+}

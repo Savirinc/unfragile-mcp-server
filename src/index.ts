@@ -13,7 +13,7 @@
 //                        evidence + install snippet, or an honest no
 //   unfragile_search   — ranked list from the verified corpus
 //   unfragile_verify   — verify-before-invoke: conservative verdict +
-//                        signed passport. Never invoke `flagged`.
+//                        signed passport. A flagged verdict means it failed our checks.
 //   unfragile_resolve  — agent-runtime resolution: answer + verdict +
 //                        passport + snippet in one call
 //   unfragile_passport — raw Ed25519-signed trust passport JSON
@@ -85,7 +85,7 @@ const server = new McpServer({
 
 server.tool(
   "unfragile_answer",
-  "THE headline call: describe what you need and get ONE verified answer from the Unfragile corpus — fresh (crawled weekly), tested (machine-verified with honest tiers), signed (Ed25519 trust passport) — plus a paste-ready install snippet and honest alternatives. Same question, same answer (stored per question for 24 h). It names one product only when it does the task and was checked by us, through its maker's own door when there is one; otherwise an honest 'no confident answer' — trust the abstention.",
+  "Returns one checked product for a need, with its Ed25519-signed passport, a paste-ready install line and the alternatives, or says that nothing qualifies. The index is rebuilt weekly; the same question gives the same answer for 24 hours.",
   { query: z.string().describe("What you need, e.g. 'query postgres' or 'stripe payments'") },
   async ({ query }) => {
     log("answer", query);
@@ -123,7 +123,7 @@ server.tool(
 
 server.tool(
   "unfragile_search",
-  "Ranked results from the verified corpus with per-record evidence (tier, score, signed passport, adoption, install). Use when a list is wanted rather than the single best answer — for the single answer, use unfragile_answer.",
+  "Returns ranked records from our index, each with its evidence: tier, score, signed passport, adoption and install line.",
   {
     query: z.string().describe("Search query"),
     limit: z.number().min(1).max(20).optional().describe("Max results (default 5)"),
@@ -141,7 +141,7 @@ server.tool(
 
 server.tool(
   "unfragile_find",
-  "Find the tool ACTION that does what you need, across 2.2 million actions read from MCP servers, APIs, CLIs, SDKs, models, robots and devices. Say the task in plain words ('refund a payment', 'move the robot arm home', 'what's on my calendar tomorrow'); meaning search + word search, fused and ranked by measured trust. Every result carries its label: verified and signed · official · checked: not enough evidence yet · found in code, not yet checked · demo or tutorial · failed its last check. Never invoke a 'failed' result; treat 'checked' and 'found in code' as review-first.",
+  "Finds the product, and the specific tool action, that does a task, across the MCP servers, APIs, CLIs, SDKs, models, robots and devices in our index. Each result carries the label from our checks (verified and signed · official · checked: not enough evidence yet · found in code, not yet checked · demo or tutorial · failed its last check). answer: true adds a written, cited answer.",
   {
     task: z.string().describe("What you need done, in plain words"),
     limit: z.number().min(1).max(20).optional().describe("Max results (default 5)"),
@@ -185,7 +185,7 @@ server.tool(
 
 server.tool(
   "unfragile_verify",
-  "Verify a tool, MCP server, or package BEFORE invoking or installing it. Returns a conservative verdict — trusted | caution | unverified | flagged — with the record's Ed25519-signed trust passport attached (verifiable offline against https://unfragile.ai/api/v1/trust-passport-public-key). RULE: never invoke or install a `flagged` target; treat `unverified` as review-first.",
+  "Returns our verdict on a tool, MCP server or package (trusted · caution · unverified · flagged) and the reason, with its Ed25519-signed passport, checkable offline against https://unfragile.ai/api/v1/trust-passport-public-key. A flagged verdict means it failed our checks.",
   { target: z.string().describe("Target identity, e.g. 'npm:@stripe/mcp', a package name, or a record id") },
   async ({ target }) => {
     log("verify", target);
@@ -206,7 +206,7 @@ server.tool(
 
 server.tool(
   "unfragile_resolve",
-  "Agent-runtime resolution: one intent in, one verified record out — with verdict, Ed25519-signed passport, and a paste-ready invocation snippet in a single call. Returns an honest abstention when nothing qualifies.",
+  "Returns one checked record for a task, with its verdict, its Ed25519-signed passport and a paste-ready install line, or says that nothing qualifies.",
   { intent: z.string().describe("The task, e.g. 'send a slack message from an agent'") },
   async ({ intent }) => {
     log("resolve", intent);

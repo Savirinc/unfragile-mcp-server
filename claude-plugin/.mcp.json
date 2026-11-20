@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "unfragile": {
+      "type": "http",
+      "url": "https://unfragile.ai/api/mcp"
+    }
+  }
+}
