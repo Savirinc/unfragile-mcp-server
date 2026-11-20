@@ -1,0 +1,13 @@
+{
+  "name": "unfragile",
+  "displayName": "Unfragile",
+  "description": "Find the AI infrastructure or agent tool for a task, labelled by our checks, with signed receipts.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": {
+    "name": "Unfragile",
+    "email": "hello@unfragile.ai",
+    "url": "https://unfragile.ai"
+  },
+  "homepage": "https://unfragile.ai/docs/mcp"
+}

@@ -204,12 +204,14 @@ INSTALL
 USAGE
   unfragile verify <target> [--intent "..."] [--action read|write|execute]
   unfragile guard [--force] [--allow-unverified] -- <command...>
+  unfragile setup [--dry-run] [--yes] [--stdio] [--only=claude-code,vscode,cursor,windsurf,gemini,claude-desktop,codex]
 
 EXAMPLES
   unfragile verify mcp:@modelcontextprotocol/server-postgres
   unfragile verify npm:postmark-mcp
   unfragile guard -- claude mcp add pg -- npx -y @scope/pg-mcp
   unfragile guard -- cursor mcp add ...
+  unfragile setup --dry-run              # what it would add to each coding agent here, writing nothing
 
 BEHAVIOR
   Prints a signed verdict (trusted | caution | unverified | flagged).
@@ -239,6 +241,12 @@ async function main(): Promise<void> {
   if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") {
     help();
     process.exit(cmd ? 0 : 1);
+  }
+
+  if (cmd === "setup") {
+    const { runSetup, setupOpts, defaultEnv, terminalIo } = await import("./setup.js");
+    const results = await runSetup(setupOpts(argv.slice(1)), defaultEnv(), terminalIo());
+    process.exit(results.some((r) => r.status === "failed") ? 1 : 0);
   }
 
   if (cmd === "verify") {

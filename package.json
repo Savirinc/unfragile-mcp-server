@@ -1,8 +1,8 @@
 {
   "name": "@unfragile/mcp-server",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "mcpName": "io.github.Savirinc/unfragile",
-  "description": "Search 2.2M tool actions for agents and robots, every result labelled. Find, verify, passports.",
+  "description": "Find the AI infrastructure or agent tool for a task, labelled by our checks, with signed receipts. Plus `unfragile setup`, verify and guard.",
   "keywords": [
     "mcp",
     "mcp-server",
@@ -39,7 +39,7 @@
     "build": "tsc && chmod +x dist/index.js dist/guard.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "npm run build && node --test test/guard.test.mjs",
+    "test": "npm run build && node --test test/guard.test.mjs test/setup.test.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
